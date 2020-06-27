@@ -1,6 +1,7 @@
 import os
 import uuid
 
+import ansible.constants as C
 from ansible.errors import AnsibleError, AnsibleParserError, AnsibleUndefinedVariable
 from ansible.playbook import Playbook
 from ansible.playbook.block import Block
@@ -14,11 +15,16 @@ from graphviz import Digraph
 from ansibleplaybookgrapher.utils import GraphRepresentation, clean_name, PostProcessor, get_play_colors, \
     handle_include_path, has_role_parent
 
+# This variable is used to identity the skipped tasks due to the option --tags or --skip-tags.
+# These tasks will have by default a lower opacity on the graph unless display_skipped_hosts options in ansible.cfg
+# is false/no.
+SKIPPED = "not_tagged"
+
 
 class CustomDigrah(Digraph):
     """
     Custom digraph to avoid quoting issue with node names. Nothing special here except I put some double quotes around
-    the node and edge names and overrided some methods.
+    the node and edge names and override some methods.
     """
     _edge = "\t\"%s\" -> \"%s\"%s"
     _node = "\t\"%s\"%s"
@@ -167,23 +173,25 @@ class Grapher(object):
 
                     # the role object doesn't inherit the tags from the play. So we add it manually.
                     role.tags = role.tags + play.tags
-
+                    skipped_role = ""
                     if not role.evaluate_tags(only_tags=self.options.tags, skip_tags=self.options.skip_tags,
                                               all_vars=play_vars):
-                        # skip this role
                         self.display.vv("The role '{}' is skipped due to the tags.".format(role.get_name()))
-                        continue
+                        skipped_role = SKIPPED
+
+                        if not C.DISPLAY_SKIPPED_HOSTS:
+                            # Completely skip the role
+                            continue
 
                     role_number += 1
                     role_name = "[role] " + clean_name(role.get_name())
 
                     with self.graph.subgraph(name=role_name, node_attr={}) as role_subgraph:
                         current_counter = role_number + nb_pre_tasks
-                        role_id = "role_" + str(uuid.uuid4())
+                        role_id = "role_" + str(uuid.uuid4()) + skipped_role
+                        edge_id = "edge_" + str(uuid.uuid4()) + skipped_role
+
                         role_subgraph.node(role_name, id=role_id)
-
-                        edge_id = "edge_" + str(uuid.uuid4())
-
                         # edge from play to role
                         role_subgraph.edge(play_name, role_name, label=str(current_counter), color=color,
                                            fontcolor=color, id=edge_id)
@@ -353,29 +361,40 @@ class Grapher(object):
                     # skip role's task
                     self.display.vv("The task '{}' has a role as parent and include_role_tasks is false. "
                                     "It will be skipped.".format(task_or_block.get_name()))
+                    # skipping
                     continue
 
-                if not task_or_block.evaluate_tags(only_tags=self.options.tags, skip_tags=self.options.skip_tags,
-                                                   all_vars=play_vars):
-                    self.display.vv("The task '{}' is skipped due to the tags.".format(task_or_block.get_name()))
-                    continue
-
-                self._include_task(task_or_block=task_or_block, loop_counter=loop_counter + 1, play_vars=play_vars,
-                                   graph=graph, node_name_prefix=node_name_prefix, color=color,
-                                   parent_node_id=parent_node_id, parent_node_name=parent_node_name)
-                loop_counter += 1
+                task_included = self._include_task(task_or_block=task_or_block, loop_counter=loop_counter + 1,
+                                                   play_vars=play_vars,
+                                                   graph=graph, node_name_prefix=node_name_prefix, color=color,
+                                                   parent_node_id=parent_node_id, parent_node_name=parent_node_name)
+                if task_included:
+                    # only increment the counter if task has been successfully included.
+                    loop_counter += 1
 
         return loop_counter
 
     def _include_task(self, task_or_block, loop_counter, play_vars, graph, node_name_prefix, color, parent_node_id,
                       parent_node_name):
         """
-        Include the task in the graph
-        :return:
-        :rtype:
+        Include the task in the graph.
+        :return: True if the task has been included, false otherwise. The task my not be included due to the tags and
+        display_skipped_hosts options in ansible.cfg
+        :rtype: bool
         """
 
         self.display.vv("Adding the task '{}' to the graph".format(task_or_block.get_name()))
+
+        skipped_tasks = ''
+        if not task_or_block.evaluate_tags(only_tags=self.options.tags, skip_tags=self.options.skip_tags,
+                                           all_vars=play_vars):
+            self.display.vv("The task '{}' is skipped due to the tags.".format(task_or_block.get_name()))
+            skipped_tasks = SKIPPED
+
+            if not C.DISPLAY_SKIPPED_HOSTS:
+                # Completely skip the role
+                return False
+
         task_edge_label = str(loop_counter)
         if len(task_or_block.when) > 0:
             when = "".join(map(str, task_or_block.when))
@@ -384,11 +403,13 @@ class Grapher(object):
         task_name = clean_name(node_name_prefix + self.template(task_or_block.get_name(), play_vars))
         # get prefix id from node_name
         id_prefix = node_name_prefix.replace("[", "").replace("]", "").replace(" ", "_")
-        task_id = id_prefix + str(uuid.uuid4())
-        edge_id = "edge_" + str(uuid.uuid4())
+        task_id = id_prefix + str(uuid.uuid4()) + skipped_tasks
+        edge_id = "edge_" + str(uuid.uuid4()) + skipped_tasks
 
         graph.node(task_id, label=task_name, shape="octagon", id=task_id)
         graph.edge(parent_node_name, task_id, label=task_edge_label, color=color, fontcolor=color, style="bold",
                    id=edge_id)
         self.graph_representation.add_link(parent_node_id, edge_id)
         self.graph_representation.add_link(edge_id, task_id)
+
+        return True

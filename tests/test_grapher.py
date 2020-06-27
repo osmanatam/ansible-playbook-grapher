@@ -52,7 +52,7 @@ def _common_tests(svg_path, playbook_path, plays_number=0, tasks_number=0, post_
     :type plays_number: int
     :param tasks_number: Number of tasks in the playbook
     :type tasks_number: int
-    :param post_tasks_number Number of post tasks in the playbook
+    :param post_tasks_number: Number of post tasks in the playbook
     :type post_tasks_number: int
     :return: dict[str, PyQuery]
     """
@@ -60,7 +60,7 @@ def _common_tests(svg_path, playbook_path, plays_number=0, tasks_number=0, post_
     pq = PyQuery(filename=svg_path)
     pq.remove_namespaces()
 
-    # test if the file exist. It will exist only if we write in it
+    # test if the file exist. It will exist only if we write in it.
     assert os.path.isfile(svg_path), "The svg file should exist"
     assert pq('#root_node text').text() == playbook_path
 
@@ -216,3 +216,10 @@ def test_relative_var_files(request):
     # check if the plays title contains the interpolated variables
     assert 'Cristiano Ronaldo' in res['tasks'][0].find('text').text, 'The title should contain player name'
     assert 'Lionel Messi' in res['tasks'][1].find('text').text, 'The title should contain player name'
+
+
+def test_playbook_tags(request):
+    """
+    Test a playbook by only graphing a specific roles/tasks based on the given tags
+    """
+    pass
