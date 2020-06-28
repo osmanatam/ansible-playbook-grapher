@@ -119,7 +119,7 @@ def test_import_tasks(request):
     """
     svg_path, playbook_path = run_grapher("import_tasks.yml", output_filename=request.node.name)
 
-    _common_tests(svg_path=svg_path, playbook_path=playbook_path, plays_number=1, tasks_number=4)
+    _common_tests(svg_path=svg_path, playbook_path=playbook_path, plays_number=1, tasks_number=5)
 
 
 @pytest.mark.parametrize(["include_role_tasks_option", "expected_tasks_number"],
